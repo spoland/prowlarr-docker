@@ -1,46 +1,32 @@
-FROM debian:latest
-
-# Set environment variable for non-interactive apt-get
+# Stage 1: builder
+FROM debian:bookworm-slim AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Create a user and group
-RUN useradd -m prowlarr
-
-# Create the directory and set permissions
-RUN mkdir -p /var/lib/prowlarr && \
-    chown prowlarr:prowlarr /var/lib/prowlarr
-
-# Update package lists and install necessary tools
-# This separates the update from the install for better error isolation
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates
+    apt-get install -y --no-install-recommends wget tar ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/locale
 
-# Install required libraries and tools for Prowlarr and its download/extraction
-RUN apt-get install -y --no-install-recommends \
-    libicu-dev \
-    curl \
-    sqlite3 \
-    wget \
-    tar && \
-    rm -rf /var/lib/apt/lists/*
-
-# Download and extract Prowlarr, then move to /opt
 RUN wget --content-disposition 'http://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64' && \
-    tar -xvzf Prowlarr*.linux*.tar.gz && \
-    mv Prowlarr /opt && \
-    rm Prowlarr*.linux*.tar.gz && \
-    chown prowlarr:prowlarr -R /opt/Prowlarr
+    tar -xvzf Prowlarr*.linux*.tar.gz -C /tmp/ && \
+    mv /tmp/Prowlarr /tmp/prowlarr_extracted && \
+    rm Prowlarr*.linux*.tar.gz
 
-# Switch to the prowlarr user for subsequent operations and security
+# Stage 2: final
+FROM mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN useradd -m prowlarr && \
+    mkdir -p /var/lib/prowlarr && \
+    chown prowlarr:prowlarr /var/lib/prowlarr && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libsqlite3-0 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/locale
+
+COPY --from=builder --chown=prowlarr:prowlarr /tmp/prowlarr_extracted /opt/Prowlarr
+
 USER prowlarr
-
-# Set the working directory for Prowlarr
 WORKDIR /opt/Prowlarr
-
-# Define the entry point for the application
-# Ensure 'Prowlarr' is the correct executable name
 ENTRYPOINT ["/opt/Prowlarr/Prowlarr", "-nobrowser", "-data=/var/lib/prowlarr/"]
-
-# Expose the default Prowlarr port (if you know it, otherwise remove or specify)
-# Prowlarr typically runs on port 9696
 EXPOSE 9696
