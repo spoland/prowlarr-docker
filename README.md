@@ -40,7 +40,9 @@ docker run -d \
   prowlarr-docker
 ```
 
-- The web UI will be available at: [http://localhost:9696](http://localhost:9696)
+The web UI will be available at: [http://localhost:9696](http://localhost:9696).
+
+If you're running Docker on a remote server, replace localhost with the IP address of your Docker host machine.
 
 ### Optional: Persisting Data
 
