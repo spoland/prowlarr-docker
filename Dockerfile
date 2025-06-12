@@ -17,8 +17,8 @@ FROM mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN useradd -m prowlarr && \
-    mkdir -p /var/lib/prowlarr && \
-    chown prowlarr:prowlarr /var/lib/prowlarr && \
+    mkdir -p /config && \
+    chown prowlarr:prowlarr /config && \
     apt-get update && \
     apt-get install -y --no-install-recommends libsqlite3-0 && \
     apt-get clean && \
@@ -28,5 +28,5 @@ COPY --from=builder --chown=prowlarr:prowlarr /tmp/prowlarr_extracted /opt/Prowl
 
 USER prowlarr
 WORKDIR /opt/Prowlarr
-ENTRYPOINT ["/opt/Prowlarr/Prowlarr", "-nobrowser", "-data=/var/lib/prowlarr/"]
+ENTRYPOINT ["/opt/Prowlarr/Prowlarr", "-nobrowser", "-data=/config/"]
 EXPOSE 9696
