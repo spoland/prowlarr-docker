@@ -87,9 +87,16 @@ jobs:
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
         env:
-          # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
           TAGS: ${{ steps.meta.outputs.tags }}
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        # This step uses the identity token to provision an ephemeral certificate
-        # against the sigstore community Fulcio instance.
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+        # Add retry logic
+        run: |
+          for i in 1 2 3; do
+            echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST} && exit 0
+            if [ $i -lt 3 ]; then
+              echo "Cosign signing failed. Retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Cosign signing failed after 3 attempts."
+          exit 1
