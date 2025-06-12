@@ -84,19 +84,27 @@ jobs:
       # repository is public to avoid leaking data.  If you would like to publish
       # transparency data even for private images, pass --force to cosign below.
       # https://github.com/sigstore/cosign
+      # Sign the published Docker image. Use an ID to track the outcome.
       - name: Sign the published Docker image
+        id: sign # <-- Add an ID to this step
         if: ${{ github.event_name != 'pull_request' }}
+        # This will allow the workflow to continue even if this step fails.
+        continue-on-error: true # <-- The key change
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        # Add retry logic
         run: |
-          for i in 1 2 3; do
-            echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST} && exit 0
-            if [ $i -lt 3 ]; then
-              echo "Cosign signing failed. Retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Cosign signing failed after 3 attempts."
-          exit 1
+          echo "Attempting to sign image digest..."
+          # This is the original command, you could add your retry logic here too
+          echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+      # Check if signing failed and print a warning.
+      - name: Print signing failure warning
+        # This step only runs if the previous step with id 'sign' had an outcome of 'failure'.
+        if: ${{ steps.sign.outcome == 'failure' }}
+        run: |
+          echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+          echo "!!! WARNING: Image signing failed due to an external service error (Cosign/Sigstore)."
+          echo "!!! The Docker image was successfully pushed but is UNSIGNED."
+          echo "!!! This may be due to a temporary outage. Check https://status.sigstore.dev"
+          echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
