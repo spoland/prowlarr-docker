@@ -22,6 +22,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write
       # This is used to complete the identity challenge
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
@@ -54,6 +55,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract Prowlarr version from remote filename
+        id: extract_version
+        run: |
+          set -e
+          # Download only the headers to get the filename from Content-Disposition
+          FILENAME=$(curl -sL -D - "http://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64" \
+            -o /dev/null | grep -i "content-disposition" | awk -F'filename=' '{print $2}' | tr -d '";' | sed 's/^ //g')
+          # Extract the version like 4.0.15.2941 from the filename
+          VERSION=$(echo "$FILENAME" | grep -oP '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+          echo "PROWLARR_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if image tag already exists in GHCR
+        id: check_tag_exists
+        # This step should only run if we successfully extracted a version
+        if: ${{ steps.extract_version.outputs.version }}
+        run: |
+          IMAGE_NAME="spoland/prowlarr-docker"
+          VERSION_TAG="${{ steps.extract_version.outputs.version }}"
+
+          echo "Checking for existing image: ${IMAGE_NAME}:${VERSION_TAG}"
+          PACKAGE_VERSIONS=$(gh api /users/spoland/packages/container/prowlarr-docker/versions | jq -r '.[].metadata.container.tags[]')
+
+          if echo "$PACKAGE_VERSIONS" | grep -q "^${VERSION_TAG}$"; then
+            echo "Image ${IMAGE_NAME}:${VERSION_TAG} already exists in GitHub Container Registry."
+            echo "Skipping pipeline run."
+            gh run cancel ${{ github.run_id }} # Abort the workflow
+          else
+            echo "Image ${IMAGE_NAME}:${VERSION_TAG} does not exist. Proceeding with build."
+          fi
+        env:
+          # This ensures gh CLI is authenticated to check packages
+          GH_TOKEN: ${{ github.token }}
+
       # Extract metadata (tags, labels) for Docker
       # https://github.com/docker/metadata-action
       - name: Extract Docker metadata
@@ -62,9 +97,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
+            type=raw,value=${{ steps.extract_version.outputs.version }}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
@@ -76,8 +111,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
 
       # Sign the resulting Docker image digest except on PRs.
       # This will only write to the public Rekor transparency log when the Docker
